@@ -15,6 +15,10 @@ multiple copies of their normal loot.
 - XP and other block-break side effects are never multiplied.
 - All decisions and final drops are calculated server-side in the same
   block-drops event.
+- Each actual harvested ore block receives its own independent Deep Yield
+  roll, including blocks harvested by compatible player-initiated vein mining.
+- No Ore Vein Miner dependency is required; compatibility uses the normal
+  NeoForge block-drops pipeline.
 
 ## Configuration
 
@@ -63,3 +67,17 @@ The intended version model is one standalone project per Git branch:
 - Minecraft 26.2.x: `26.2.x`
 
 The `26.1.x` branch targets Minecraft 26.1.x with NeoForge 26.1.2.106.
+
+## Vein-miner compatibility
+
+Deep Yield observes `BlockDropsEvent`, so a vein-mining mod that harvests
+secondary blocks through Minecraft's normal server-side block-breaking and
+loot pipeline receives one Deep Yield roll per harvested block. A successful
+roll affects only that block's final loot; it never multiplies the entire
+vein. Fortune, Silk Touch, blacklist checks, and the custom compatibility
+tag are evaluated independently for every event.
+
+The event hook is the only Deep Yield drop integration, preventing separate
+break and loot handlers from processing the same event twice. Blocks without
+reliable player attribution are left unchanged. No delayed bonus spawning or
+Ore Vein Miner-specific dependency is used.

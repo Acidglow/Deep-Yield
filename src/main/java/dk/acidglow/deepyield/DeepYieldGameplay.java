@@ -1,9 +1,12 @@
 package dk.acidglow.deepyield;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -29,6 +32,8 @@ public final class DeepYieldGameplay {
             net.minecraft.core.registries.Registries.BLOCK,
             Identifier.fromNamespaceAndPath(DeepYield.MODID, "bonus_ores"));
     private static final int[] DEFAULT_WEIGHTS = {50, 25, 15, 7, 3};
+    private static final Set<BlockDropsEvent> PROCESSED_EVENTS =
+            Collections.newSetFromMap(new WeakHashMap<>());
     private static boolean warnedInvalidWeights;
 
     private DeepYieldGameplay() {
@@ -39,6 +44,9 @@ public final class DeepYieldGameplay {
     }
 
     private static void onBlockDrops(BlockDropsEvent event) {
+        if (!PROCESSED_EVENTS.add(event)) {
+            return;
+        }
         if (!(event.getBreaker() instanceof Player)) {
             return;
         }
