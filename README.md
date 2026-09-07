@@ -130,3 +130,7 @@ guess their origin.
 For local Ore Vein Miner testing, place its matching jar in `libs 26.1.x/` or
 `libs 26.2.x/` on the corresponding branch. These local folders are ignored
 by Git and are not included in the released Deep Yield jar.
+
+## License
+
+Deep Yield is available under the [MIT License](LICENSE).
