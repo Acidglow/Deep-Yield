@@ -19,6 +19,32 @@ multiple copies of their normal loot.
   roll, including blocks harvested by compatible player-initiated vein mining.
 - No Ore Vein Miner dependency is required; compatibility uses the normal
   NeoForge block-drops pipeline.
+- Player- and mechanism-placed eligible ores are tracked as non-natural
+  blocks, so they retain normal Fortune/Silk Touch loot but never reactivate
+  Deep Yield.
+
+## Placement provenance
+
+Deep Yield registers a persistent NeoForge `AttachmentType` on each
+`LevelChunk`. The attachment contains only packed positions that were actually
+placed, is serialized with the chunk, and is marked unsaved whenever it
+changes. `BlockEvent.EntityPlaceEvent` covers normal player, fake-player, and
+other entity placement; `FluidPlaceBlockEvent` covers reliable fluid
+placement. `BlockDropsEvent` checks the marker before any Deep Yield roll, and
+`LevelTickEvent.Post` removes it after the block has actually changed.
+
+Piston provenance is transferred using NeoForge `PistonEvent.Pre`/`Post` and
+the supported `PistonStructureResolver`; destroyed tracked blocks are removed
+and moved tracked blocks are marked at their destination. Direct block writes
+that do not fire a supported placement event (for example, some custom
+structure or machine implementations) cannot be identified without a
+mod-specific integration and are therefore not guessed or treated as
+automatically placed.
+
+Installing Deep Yield into an existing world cannot reconstruct eligible ores
+that were manually placed before installation. Those positions are
+indistinguishable from natural worldgen; tracking is reliable from the point
+the mod is installed.
 
 ## Configuration
 
