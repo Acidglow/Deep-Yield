@@ -7,12 +7,15 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.WeakHashMap;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
@@ -27,8 +30,10 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.piston.PistonStructureResolver;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.Tags;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import net.neoforged.neoforge.event.level.BlockDropsEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
@@ -50,6 +55,7 @@ public final class DeepYieldGameplay {
     private static final Map<ServerLevel, Map<BlockPosKey, BlockState>> PENDING_CLEANUP =
             new IdentityHashMap<>();
     private static final Map<PistonKey, List<PistonMove>> PENDING_PISTON_MOVES = new HashMap<>();
+    private static final Map<VeinMineKey, VeinMineCapture> PENDING_VEIN_MINE_DROPS = new HashMap<>();
     private static boolean warnedInvalidWeights;
 
     private DeepYieldGameplay() {
@@ -62,6 +68,7 @@ public final class DeepYieldGameplay {
         NeoForge.EVENT_BUS.addListener(DeepYieldGameplay::onPistonPre);
         NeoForge.EVENT_BUS.addListener(DeepYieldGameplay::onPistonPost);
         NeoForge.EVENT_BUS.addListener(DeepYieldGameplay::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(DeepYieldGameplay::onRegisterCommands);
     }
 
     public static void registerAttachments(RegisterEvent event) {
@@ -117,6 +124,90 @@ public final class DeepYieldGameplay {
 
         int additionalCopies = chooseAdditionalCopies(random);
         multiplyAndConsolidate(event.getDrops(), level, additionalCopies + 1);
+    }
+
+    private static void onRegisterCommands(RegisterCommandsEvent event) {
+        event.getDispatcher().register(Commands.literal("deepyield")
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .then(Commands.literal("ore-vein-miner")
+                        .then(Commands.literal("before").executes(context -> captureVeinMineDrops(context.getSource())))
+                        .then(Commands.literal("after").executes(context -> applyVeinMineBonus(context.getSource())))));
+    }
+
+    /**
+     * Ore Vein Miner supplies this hook immediately before its command-based
+     * harvest. Its secondary blocks bypass BlockDropsEvent, so retain the
+     * original state and the nearby item entities before it creates the loot.
+     */
+    private static int captureVeinMineDrops(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof Player player)) {
+            return 0;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos pos = BlockPos.containing(source.getPosition());
+        BlockState state = level.getBlockState(pos);
+        if (!isOreCandidate(state)) {
+            return 0;
+        }
+        Set<UUID> existingDrops = new java.util.HashSet<>();
+        for (ItemEntity item : nearbyItems(level, pos)) {
+            existingDrops.add(item.getUUID());
+        }
+        PENDING_VEIN_MINE_DROPS.put(
+                new VeinMineKey(level, player.getUUID(), pos.immutable()),
+                new VeinMineCapture(state, placedProvenance(level, pos), player.getMainHandItem().copy(), existingDrops));
+        return 1;
+    }
+
+    /**
+     * Ore Vein Miner invokes this hook after spawning the normal loot and
+     * removing the block. Only items created between the paired hooks are
+     * changed, so neighboring drops remain untouched.
+     */
+    private static int applyVeinMineBonus(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof Player player)) {
+            return 0;
+        }
+        ServerLevel level = source.getLevel();
+        BlockPos pos = BlockPos.containing(source.getPosition());
+        VeinMineCapture capture = PENDING_VEIN_MINE_DROPS.remove(
+                new VeinMineKey(level, player.getUUID(), pos.immutable()));
+        if (capture == null) {
+            return 0;
+        }
+
+        if (!level.getBlockState(pos).equals(capture.state())) {
+            removePlaced(level, pos);
+        }
+        if (!isEligible(capture.state()) || !allowsDeepYield(capture.provenance())) {
+            return 0;
+        }
+        boolean fortune = hasEnchantment(level, capture.tool(), Enchantments.FORTUNE);
+        boolean silkTouch = hasEnchantment(level, capture.tool(), Enchantments.SILK_TOUCH);
+        if (DeepYieldRules.shouldSkipEnchantedTool(
+                fortune,
+                silkTouch,
+                DeepYieldConfig.AFFECT_FORTUNE.get(),
+                DeepYieldConfig.AFFECT_SILK_TOUCH.get())) {
+            return 0;
+        }
+
+        double chance = DeepYieldConfig.BONUS_CHANCE.get();
+        RandomSource random = level.getRandom();
+        double roll = chance > 0.0D && chance < 1.0D ? random.nextDouble() : 0.0D;
+        if (!DeepYieldRules.shouldActivate(chance, roll)) {
+            return 0;
+        }
+
+        List<ItemEntity> newDrops = nearbyItems(level, pos).stream()
+                .filter(item -> !capture.existingDropIds().contains(item.getUUID()))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        multiplySpawnedDrops(newDrops, level, chooseAdditionalCopies(random) + 1);
+        return 1;
+    }
+
+    private static List<ItemEntity> nearbyItems(ServerLevel level, BlockPos pos) {
+        return level.getEntitiesOfClass(ItemEntity.class, new AABB(pos).inflate(0.75D));
     }
 
     private static void onPistonPre(PistonEvent.Pre event) {
@@ -333,6 +424,25 @@ public final class DeepYieldGameplay {
         drops.addAll(rebuilt);
     }
 
+    private static void multiplySpawnedDrops(List<ItemEntity> drops, ServerLevel level, int multiplier) {
+        if (drops.isEmpty()) {
+            return;
+        }
+        Set<ItemEntity> originalDrops = Collections.newSetFromMap(new IdentityHashMap<>());
+        originalDrops.addAll(drops);
+        multiplyAndConsolidate(drops, level, multiplier);
+        for (ItemEntity original : originalDrops) {
+            if (!drops.contains(original)) {
+                original.discard();
+            }
+        }
+        for (ItemEntity drop : drops) {
+            if (!originalDrops.contains(drop)) {
+                level.addFreshEntity(drop);
+            }
+        }
+    }
+
     private record ItemStackKey(net.minecraft.world.item.Item item, net.minecraft.core.component.DataComponentMap components) {
         private ItemStackKey(ItemStack stack) {
             this(stack.getItem(), stack.getComponents());
@@ -347,5 +457,12 @@ public final class DeepYieldGameplay {
     }
 
     private record PistonMove(BlockPos source, BlockPos destination, PlacedOrePositions.Provenance provenance) {
+    }
+
+    private record VeinMineKey(ServerLevel level, UUID playerId, BlockPos pos) {
+    }
+
+    private record VeinMineCapture(BlockState state, PlacedOrePositions.Provenance provenance, ItemStack tool,
+                                   Set<UUID> existingDropIds) {
     }
 }
