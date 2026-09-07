@@ -37,12 +37,7 @@ runs {
         modSource project.sourceSets.main
     }
 
-    client {
-        systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
-    }
-
     server {
-        systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         argument '--nogui'
     }
 
