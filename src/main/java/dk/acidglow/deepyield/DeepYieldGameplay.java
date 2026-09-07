@@ -41,7 +41,6 @@ public final class DeepYieldGameplay {
     private static final TagKey<Block> BONUS_ORES = TagKey.create(
             net.minecraft.core.registries.Registries.BLOCK,
             Identifier.fromNamespaceAndPath(DeepYield.MODID, "bonus_ores"));
-    private static final int[] DEFAULT_WEIGHTS = {50, 25, 15, 7, 3};
     public static final AttachmentType<PlacedOrePositions> PLACED_ORES = AttachmentType
             .builder(PlacedOrePositions::new)
             .serialize(PlacedOrePositions.CODEC)
@@ -101,14 +100,18 @@ public final class DeepYieldGameplay {
         ItemStack tool = event.getTool();
         boolean fortune = hasEnchantment(level, tool, Enchantments.FORTUNE);
         boolean silkTouch = hasEnchantment(level, tool, Enchantments.SILK_TOUCH);
-        if ((fortune && !DeepYieldConfig.AFFECT_FORTUNE.get())
-                || (silkTouch && !DeepYieldConfig.AFFECT_SILK_TOUCH.get())) {
+        if (DeepYieldRules.shouldSkipEnchantedTool(
+                fortune,
+                silkTouch,
+                DeepYieldConfig.AFFECT_FORTUNE.get(),
+                DeepYieldConfig.AFFECT_SILK_TOUCH.get())) {
             return;
         }
 
         double chance = DeepYieldConfig.BONUS_CHANCE.get();
         RandomSource random = level.getRandom();
-        if (chance <= 0.0D || (chance < 1.0D && random.nextDouble() >= chance)) {
+        double roll = chance > 0.0D && chance < 1.0D ? random.nextDouble() : 0.0D;
+        if (!DeepYieldRules.shouldActivate(chance, roll)) {
             return;
         }
 
@@ -230,21 +233,19 @@ public final class DeepYieldGameplay {
 
     private static boolean isEligible(BlockState state) {
         Block block = state.getBlock();
-        if (!isOreCandidate(state)) {
-            return false;
-        }
-
         Identifier id = BuiltInRegistries.BLOCK.getKey(block);
-        if (id == null) {
-            return true;
-        }
+        boolean blacklisted = false;
         for (String configuredId : DeepYieldConfig.ORE_BLACKLIST.get()) {
             Identifier blacklistId = Identifier.tryParse(configuredId);
             if (blacklistId != null && blacklistId.equals(id)) {
-                return false;
+                blacklisted = true;
+                break;
             }
         }
-        return true;
+        return DeepYieldRules.isEligible(
+                state.is(Tags.Blocks.ORES_IN_GROUND_DEEPSLATE),
+                state.is(BONUS_ORES),
+                blacklisted);
     }
 
     private static boolean hasEnchantment(ServerLevel level, ItemStack tool, ResourceKey<Enchantment> key) {
@@ -269,23 +270,11 @@ public final class DeepYieldGameplay {
         for (int weight : weights) {
             total += weight;
         }
-        if (total <= 0L) {
-            if (!warnedInvalidWeights) {
-                warnedInvalidWeights = true;
-                DeepYield.LOGGER.warn("Deep Yield bonus weights are unusable; using the default weight table.");
-            }
-            weights = DEFAULT_WEIGHTS;
-            total = 100L;
+        if (total <= 0L && !warnedInvalidWeights) {
+            warnedInvalidWeights = true;
+            DeepYield.LOGGER.warn("Deep Yield bonus weights are unusable; using the default weight table.");
         }
-
-        long roll = Math.floorMod(random.nextLong(), total);
-        for (int i = 0; i < weights.length; i++) {
-            roll -= weights[i];
-            if (roll < 0L) {
-                return i + 1;
-            }
-        }
-        return 1;
+        return DeepYieldRules.chooseAdditionalCopies(weights, random.nextLong());
     }
 
     private static void multiplyAndConsolidate(List<ItemEntity> drops, ServerLevel level, int multiplier) {
@@ -293,45 +282,38 @@ public final class DeepYieldGameplay {
             return;
         }
 
-        Map<ItemStackKey, ConsolidatedDrop> consolidated = new HashMap<>();
-        for (ItemEntity entity : drops) {
-            ItemStack stack = entity.getItem();
-            if (stack.isEmpty()) {
-                continue;
-            }
-            long amount = (long) stack.getCount() * multiplier;
-            ConsolidatedDrop existing = consolidated.get(new ItemStackKey(stack));
-            if (existing == null) {
-                consolidated.put(new ItemStackKey(stack), new ConsolidatedDrop(entity, stack.copy(), amount));
-            } else {
-                existing.amount += amount;
-            }
-        }
-
-        if (consolidated.isEmpty()) {
+        List<DeepYieldRules.LootDrop<ItemStackKey>> multipliedDrops = DeepYieldRules.multiplyAndConsolidate(
+                drops.stream()
+                        .map(entity -> new DeepYieldRules.LootDrop<>(
+                                new ItemStackKey(entity.getItem()),
+                                entity.getItem().getCount(),
+                                entity.getItem().getMaxStackSize()))
+                        .toList(),
+                multiplier);
+        if (multipliedDrops.isEmpty()) {
             return;
         }
 
-        List<ItemEntity> rebuilt = new ArrayList<>(consolidated.size());
-        for (ConsolidatedDrop drop : consolidated.values()) {
-            ItemEntity template = drop.template;
-            long remaining = drop.amount;
-            boolean first = true;
-            while (remaining > 0L) {
-                int count = (int) Math.min(remaining, drop.stack.getMaxStackSize());
-                ItemStack result = drop.stack.copyWithCount(count);
-                ItemEntity entity;
-                if (first) {
-                    entity = template;
-                    entity.setItem(result);
-                    first = false;
-                } else {
-                    entity = new ItemEntity(level, template.getX(), template.getY(), template.getZ(), result,
-                            template.getDeltaMovement().x, template.getDeltaMovement().y, template.getDeltaMovement().z);
-                }
-                rebuilt.add(entity);
-                remaining -= count;
+        Map<ItemStackKey, ItemEntity> templates = new HashMap<>();
+        for (ItemEntity entity : drops) {
+            templates.putIfAbsent(new ItemStackKey(entity.getItem()), entity);
+        }
+        Map<ItemStackKey, Boolean> usedTemplates = new HashMap<>();
+        List<ItemEntity> rebuilt = new ArrayList<>(multipliedDrops.size());
+        for (DeepYieldRules.LootDrop<ItemStackKey> multipliedDrop : multipliedDrops) {
+            ItemEntity template = templates.get(multipliedDrop.key());
+            if (template == null) {
+                continue;
             }
+            ItemStack result = template.getItem().copyWithCount(multipliedDrop.count());
+            ItemStackKey key = multipliedDrop.key();
+            boolean reuse = usedTemplates.putIfAbsent(key, Boolean.TRUE) == null;
+            ItemEntity entity = reuse
+                    ? template
+                    : new ItemEntity(level, template.getX(), template.getY(), template.getZ(), result,
+                            template.getDeltaMovement().x, template.getDeltaMovement().y, template.getDeltaMovement().z);
+            entity.setItem(result);
+            rebuilt.add(entity);
         }
         drops.clear();
         drops.addAll(rebuilt);
@@ -341,19 +323,6 @@ public final class DeepYieldGameplay {
         private ItemStackKey(ItemStack stack) {
             this(stack.getItem(), stack.getComponents());
         }
-    }
-
-    private static final class ConsolidatedDrop {
-        private final ItemEntity template;
-        private final ItemStack stack;
-        private long amount;
-
-        private ConsolidatedDrop(ItemEntity template, ItemStack stack, long amount) {
-            this.template = template;
-            this.stack = stack;
-            this.amount = amount;
-        }
-
     }
 
     private record BlockPosKey(BlockPos pos) {
