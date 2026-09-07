@@ -1,63 +1,54 @@
 # Deep Yield
 
-Deep Yield gives eligible deepslate ores a configurable chance to provide
-multiple copies of their normal loot.
+Deep Yield gives naturally generated deepslate ores a configurable chance to
+drop extra copies of their normal loot. It works on a server and needs no
+client-side configuration.
 
-## Features
+## What happens when an ore is mined
 
-- Vanilla deepslate ores are supported automatically.
-- Modded ores tagged with `c:ores_in_ground/deepslate` are supported without
-  mod-specific integration.
-- `#deepyield:bonus_ores` is an explicit opt-in compatibility tag for datapacks
-  and modpacks.
-- Fortune and Silk Touch can each be enabled or disabled independently.
-- `oreBlacklist` entries override every eligibility tag.
-- XP and other block-break side effects are never multiplied.
-- All decisions and final drops are calculated server-side in the same
-  block-drops event.
-- Each actual harvested ore block receives its own independent Deep Yield
-  roll, including blocks harvested by compatible player-initiated vein mining.
-- No Ore Vein Miner dependency is required; compatibility uses the normal
-  NeoForge block-drops pipeline.
-- Player- and mechanism-placed eligible ores are tracked as non-natural
-  blocks, so Survival placements retain normal Fortune/Silk Touch loot but
-  never reactivate Deep Yield.
-- Ores placed by a Creative-mode player can be allowed for testing and server
-  administration with `allowCreativePlacedOres`.
+For each eligible ore block, Deep Yield first lets Minecraft calculate normal
+loot, including Fortune or Silk Touch. It then makes one independent bonus
+roll. On a successful roll, it adds complete extra copies of that result.
 
-## Placement provenance
+With the default configuration, an eligible ore has a 20% chance to activate.
+The bonus can range from one to five extra copies. XP and other block-break
+effects stay unchanged.
 
-Deep Yield registers a persistent NeoForge `AttachmentType` on each
-`LevelChunk`. The attachment contains only packed positions that were actually
-placed, is serialized with the chunk, and is marked unsaved whenever it
-changes. `BlockEvent.EntityPlaceEvent` covers normal player, fake-player, and
-other entity placement; `FluidPlaceBlockEvent` covers reliable fluid
-placement. `BlockDropsEvent` checks the marker before any Deep Yield roll, and
-`LevelTickEvent.Post` removes it after the block has actually changed.
+For example, a successful `+1` bonus means:
 
-The marker records whether a block was placed in Survival or Creative mode.
-Survival placements never activate Deep Yield. A Creative placement remains
-eligible after its placer changes game mode when `allowCreativePlacedOres = true`
-(the default); set that option to `false` for strictly natural-worldgen-only
-behavior.
+| Tool result before Deep Yield | Final result |
+| --- | --- |
+| 1 diamond | 2 diamonds |
+| 4 redstone from Fortune | 8 redstone |
+| 1 deepslate diamond ore from Silk Touch | 2 deepslate diamond ores |
 
-Piston provenance is transferred using NeoForge `PistonEvent.Pre`/`Post` and
-the supported `PistonStructureResolver`; destroyed tracked blocks are removed
-and moved tracked blocks are marked at their destination. Direct block writes
-that do not fire a supported placement event (for example, some custom
-structure or machine implementations) cannot be identified without a
-mod-specific integration and are therefore not guessed or treated as
-automatically placed.
+## Placed ore and repeat-bonus protection
 
-Installing Deep Yield into an existing world cannot reconstruct eligible ores
-that were manually placed before installation. Those positions are
-indistinguishable from natural worldgen; tracking is reliable from the point
-the mod is installed.
+Deep Yield records eligible ores that are placed after the mod is installed.
+This prevents a player from repeatedly mining, placing, and re-mining the
+same ore for more Deep Yield bonuses.
 
-## Configuration
+| Ore origin | Can Deep Yield activate? | Fortune and Silk Touch |
+| --- | --- | --- |
+| Naturally generated | Yes | Work normally, then Deep Yield may add copies |
+| Placed in Survival | No | Work as normal Minecraft loot |
+| Placed in Creative | Yes by default | Work normally, then Deep Yield may add copies |
 
-The server config is generated as `config/deepyield-server.toml`. The
-important settings are:
+Creative placement is intended for testing and server administration. Set
+`allowCreativePlacedOres = false` to make Creative-placed ores behave like
+Survival placements.
+
+Example: mining a natural ore with Silk Touch may produce extra ore blocks.
+If those blocks are placed in Survival and then mined with Fortune, Fortune
+works normally, but Deep Yield does not roll a second time.
+
+## Server setup
+
+Install the matching Deep Yield jar in the server's `mods` folder and in each
+player's matching NeoForge client. The server creates its configuration at
+`config/deepyield-server.toml`.
+
+The default configuration is:
 
 ```toml
 [deep_yield]
@@ -73,62 +64,69 @@ allowCreativePlacedOres = true
 oreBlacklist = []
 ```
 
-Deep Yield uses two random stages. First, `bonusChance` decides whether a
-break activates. On a hit, the configured weights select +1 through +5
-additional copies of the complete normal loot result. `+1 copy` means x2
-total loot, not one additional individual item. The configured weights do
-not need to sum to 100. If all weights are zero, the default table is used
-and a warning is logged.
+`bonusChance` is the activation probability for each eligible block. The five
+`bonusWeightPlus` settings control how often each extra-copy result occurs;
+they are weights, so they do not need to add up to 100. `+1` means two copies
+total, `+2` means three copies total, and so on.
 
-Blacklisted IDs can include vanilla and modded blocks, for example:
+For a deterministic server test, use:
+
+```toml
+bonusChance = 1.0
+bonusWeightPlus1 = 1
+bonusWeightPlus2 = 0
+bonusWeightPlus3 = 0
+bonusWeightPlus4 = 0
+bonusWeightPlus5 = 0
+```
+
+Every eligible allowed ore then drops exactly twice its normal loot. Restart
+or reload the server according to NeoForge's normal server-config lifecycle
+after changing the file.
+
+## Eligible ores and blacklist
+
+Vanilla deepslate ores work automatically. Modded ores work when they use the
+`c:ores_in_ground/deepslate` block tag. Datapacks and modpacks can opt in
+other blocks with `#deepyield:bonus_ores`.
+
+Use `oreBlacklist` to exclude any eligible ore. Blacklist entries always win:
 
 ```toml
 oreBlacklist = [
   "minecraft:deepslate_diamond_ore",
-  "minecraft:deepslate_emerald_ore",
   "some_mod:deepslate_uranium_ore"
 ]
 ```
 
-Invalid or missing registry IDs are ignored safely. Config changes follow
-NeoForge's normal server-config lifecycle; restart/reload behavior is
-determined by the current NeoForge configuration system.
+Invalid or currently unavailable block IDs are ignored safely.
 
-## Version branches
+## Vein mining
 
-The intended version model is one standalone project per Git branch:
+Each harvested ore block gets its own Deep Yield roll. A successful block
+never multiplies the whole vein.
 
-- Minecraft 26.1.x: `26.1.x`
-- Minecraft 26.2.x: `26.2.x`
+Deep Yield works with vein-mining mods that use Minecraft's normal drop path.
+It also supports Ore Vein Miner without bundling it or requiring it as a
+dependency: its secondary command-based breaks use Deep Yield's optional
+`before_remove` and `after_remove` hooks. Fortune, Silk Touch, blacklist
+rules, and placed-ore protection still apply separately to every block.
 
-The branches target:
+## Supported branches
 
-- `26.1.x`: Minecraft 26.1.x with NeoForge 26.1.2.106
-- `26.2.x`: Minecraft 26.2.x with NeoForge 26.2.0.79
+| Git branch | Minecraft | NeoForge | Deep Yield version |
+| --- | --- | --- | --- |
+| `26.1.x` | 26.1.x | 26.1.2.106 | 1.0.0 |
+| `26.2.x` | 26.2.x | 26.2.0.79 | 2.0.0 |
 
-## Vein-miner compatibility
+## Advanced server notes
 
-Deep Yield observes `BlockDropsEvent`, so a vein-mining mod that harvests
-secondary blocks through Minecraft's normal server-side block-breaking and
-loot pipeline receives one Deep Yield roll per harvested block. A successful
-roll affects only that block's final loot; it never multiplies the entire
-vein. Fortune, Silk Touch, blacklist checks, and the custom compatibility
-tag are evaluated independently for every event.
+Placed-ore markers are saved with the chunk, survive server restarts, and
+move with ores pushed by pistons. Ores placed before Deep Yield was installed
+cannot be identified reliably and are treated as natural. Some machines or
+custom block writes may bypass normal placement events; Deep Yield does not
+guess their origin.
 
-The standard event handler processes each block-drop event once. Blocks
-without reliable player attribution are left unchanged. No delayed bonus
-spawning or Ore Vein Miner-specific dependency is used.
-
-Ore Vein Miner uses command functions for its secondary blocks and bypasses
-`BlockDropsEvent`. Deep Yield adds optional entries to its `before_remove` and
-`after_remove` function-hook tags. The hooks capture each secondary block's
-normal loot and apply the same independent Deep Yield roll. No Ore Vein Miner
-code or dependency is bundled in the released mod.
-
-## Development vein-miner testing
-
-For local integration testing, place the matching Ore Vein Miner JAR in
-`libs 26.1.x/` on the `26.1.x` branch or `libs 26.2.x/` on the `26.2.x`
-branch. NeoGradle adds that folder to `localRuntime`, so `runClient` starts
-with the mod installed. These directories are ignored and are never packaged
-or published as Deep Yield dependencies.
+For local Ore Vein Miner testing, place its matching jar in `libs 26.1.x/` or
+`libs 26.2.x/` on the corresponding branch. These local folders are ignored
+by Git and are not included in the released Deep Yield jar.
