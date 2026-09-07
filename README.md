@@ -112,10 +112,15 @@ roll affects only that block's final loot; it never multiplies the entire
 vein. Fortune, Silk Touch, blacklist checks, and the custom compatibility
 tag are evaluated independently for every event.
 
-The event hook is the only Deep Yield drop integration, preventing separate
-break and loot handlers from processing the same event twice. Blocks without
-reliable player attribution are left unchanged. No delayed bonus spawning or
-Ore Vein Miner-specific dependency is used.
+The standard event handler processes each block-drop event once. Blocks
+without reliable player attribution are left unchanged. No delayed bonus
+spawning or Ore Vein Miner-specific dependency is used.
+
+Ore Vein Miner uses command functions for its secondary blocks and bypasses
+`BlockDropsEvent`. Deep Yield adds optional entries to its `before_remove` and
+`after_remove` function-hook tags. The hooks capture each secondary block's
+normal loot and apply the same independent Deep Yield roll. No Ore Vein Miner
+code or dependency is bundled in the released mod.
 
 ## Development vein-miner testing
 

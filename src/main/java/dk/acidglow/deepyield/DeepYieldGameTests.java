@@ -19,6 +19,8 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
 
 /** Server-side integration tests for the block-drops event path. */
@@ -36,6 +38,8 @@ final class DeepYieldGameTests {
         register(event, "creative_placed_ore_is_allowed", DeepYieldGameTests::creativePlacedOreIsAllowed);
         register(event, "creative_placed_ore_is_skipped_when_disabled",
                 DeepYieldGameTests::creativePlacedOreIsSkippedWhenDisabled);
+        register(event, "ore_vein_miner_secondary_ore_gets_own_roll",
+                DeepYieldGameTests::oreVeinMinerSecondaryOreGetsOwnRoll);
     }
 
     private static void register(RegisterGameTestsEvent event, String name, Consumer<GameTestHelper> test) {
@@ -94,6 +98,31 @@ final class DeepYieldGameTests {
         breakOre(helper, survivalMiner);
         helper.runAfterDelay(1, () -> {
             helper.assertItemEntityCountIs(Items.DIAMOND, ORE_POSITION, DROP_RADIUS, 1);
+            helper.succeed();
+        });
+    }
+
+    private static void oreVeinMinerSecondaryOreGetsOwnRoll(GameTestHelper helper) {
+        configureDeterministicBonus();
+        Player player = miningPlayer(helper, GameType.SURVIVAL);
+        BlockPos absolutePosition = helper.absolutePos(ORE_POSITION);
+        helper.setBlock(ORE_POSITION, Blocks.DEEPSLATE_DIAMOND_ORE);
+
+        var commandSource = helper.getLevel().getServer().createCommandSourceStack()
+                .withLevel(helper.getLevel())
+                .withEntity(player)
+                .withPosition(Vec3.atCenterOf(absolutePosition));
+        helper.getLevel().getServer().getCommands().performPrefixedCommand(
+                commandSource, "deepyield ore-vein-miner before");
+        helper.getLevel().addFreshEntity(new ItemEntity(
+                helper.getLevel(), absolutePosition.getX() + 0.5D, absolutePosition.getY() + 0.5D,
+                absolutePosition.getZ() + 0.5D, new ItemStack(Items.DIAMOND)));
+        helper.getLevel().setBlock(absolutePosition, Blocks.AIR.defaultBlockState(), 3);
+        helper.getLevel().getServer().getCommands().performPrefixedCommand(
+                commandSource, "deepyield ore-vein-miner after");
+
+        helper.runAfterDelay(1, () -> {
+            helper.assertItemEntityCountIs(Items.DIAMOND, ORE_POSITION, DROP_RADIUS, 2);
             helper.succeed();
         });
     }
