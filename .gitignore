@@ -25,6 +25,10 @@ bin/
 
 .vscode/
 .github/copilot-instructions.md
+goal.md
+vein_miner.md
+worldgen_silktouch.md
+milestone.md
 
 .DS_Store
 
