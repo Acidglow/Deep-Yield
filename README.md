@@ -62,6 +62,7 @@ The intended version model is one standalone project per Git branch:
 - Minecraft 26.1.x: `26.1.x`
 - Minecraft 26.2.x: `26.2.x`
 
-This working directory is not a Git repository, so no branch operations are
-claimed or performed here. The implemented project targets the generated
-NeoForge 26.2 setup.
+The branches target:
+
+- `26.1.x`: Minecraft 26.1.x with NeoForge 26.1.2.106
+- `26.2.x`: Minecraft 26.2.x with NeoForge 26.2.0.79
