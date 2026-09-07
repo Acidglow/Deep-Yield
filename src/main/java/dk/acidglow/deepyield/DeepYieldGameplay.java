@@ -154,7 +154,7 @@ public final class DeepYieldGameplay {
         List<ItemEntity> rebuilt = new ArrayList<>(consolidated.size());
         for (ConsolidatedDrop drop : consolidated.values()) {
             ItemEntity template = drop.template;
-            long remaining = Math.min(drop.amount, Integer.MAX_VALUE);
+            long remaining = drop.amount;
             boolean first = true;
             while (remaining > 0L) {
                 int count = (int) Math.min(remaining, drop.stack.getMaxStackSize());
