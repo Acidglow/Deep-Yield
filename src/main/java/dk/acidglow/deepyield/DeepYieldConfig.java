@@ -20,6 +20,7 @@ public final class DeepYieldConfig {
     public static final ModConfigSpec.IntValue BONUS_WEIGHT_PLUS_5;
     public static final ModConfigSpec.BooleanValue AFFECT_FORTUNE;
     public static final ModConfigSpec.BooleanValue AFFECT_SILK_TOUCH;
+    public static final ModConfigSpec.BooleanValue ALLOW_CREATIVE_PLACED_ORES;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> ORE_BLACKLIST;
 
     static {
@@ -50,6 +51,9 @@ public final class DeepYieldConfig {
         AFFECT_SILK_TOUCH = builder
                 .comment("If false, Deep Yield skips tools containing Silk Touch.")
                 .define("affectSilkTouch", true);
+        ALLOW_CREATIVE_PLACED_ORES = builder
+                .comment("If true, ores placed while a player is in Creative mode may receive Deep Yield.")
+                .define("allowCreativePlacedOres", true);
         ORE_BLACKLIST = builder
                 .comment("Block IDs excluded from Deep Yield, even when eligible by tag.")
                 .defineList("oreBlacklist", List.of(), () -> "", value -> value instanceof String string

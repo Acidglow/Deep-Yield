@@ -73,14 +73,14 @@ public final class DeepYieldGameplay {
         if (!(event.getLevel() instanceof ServerLevel level) || !isOreCandidate(event.getPlacedBlock())) {
             return;
         }
-        markPlaced(level, event.getPos());
+        markPlaced(level, event.getPos(), placementProvenance(event.getEntity()));
     }
 
     private static void onFluidPlace(BlockEvent.FluidPlaceBlockEvent event) {
         if (!(event.getLevel() instanceof ServerLevel level) || !isOreCandidate(event.getNewState())) {
             return;
         }
-        markPlaced(level, event.getPos());
+        markPlaced(level, event.getPos(), PlacedOrePositions.Provenance.SURVIVAL_PLACED);
     }
 
     private static void onBlockDrops(BlockDropsEvent event) {
@@ -89,11 +89,11 @@ public final class DeepYieldGameplay {
         }
         BlockState state = event.getState();
         ServerLevel level = event.getLevel();
-        boolean placed = isMarkedPlaced(level, event.getPos());
-        if (placed) {
+        PlacedOrePositions.Provenance provenance = placedProvenance(level, event.getPos());
+        if (provenance != null) {
             queueCleanup(level, event.getPos(), state);
         }
-        if (!(event.getBreaker() instanceof Player) || !isEligible(state) || placed) {
+        if (!(event.getBreaker() instanceof Player) || !isEligible(state) || !allowsDeepYield(provenance)) {
             return;
         }
 
@@ -129,13 +129,15 @@ public final class DeepYieldGameplay {
         }
         List<PistonMove> moves = new ArrayList<>();
         for (BlockPos source : resolver.getToPush()) {
-            if (isMarkedPlaced(level, source)) {
-                moves.add(new PistonMove(source.immutable(), movedPosition(source, event)));
+            PlacedOrePositions.Provenance provenance = placedProvenance(level, source);
+            if (provenance != null) {
+                moves.add(new PistonMove(source.immutable(), movedPosition(source, event), provenance));
             }
         }
         for (BlockPos source : resolver.getToDestroy()) {
-            if (isMarkedPlaced(level, source)) {
-                moves.add(new PistonMove(source.immutable(), null));
+            PlacedOrePositions.Provenance provenance = placedProvenance(level, source);
+            if (provenance != null) {
+                moves.add(new PistonMove(source.immutable(), null, provenance));
             }
         }
         if (!moves.isEmpty()) {
@@ -158,7 +160,7 @@ public final class DeepYieldGameplay {
         }
         for (PistonMove move : moves) {
             if (move.destination() != null) {
-                markPlaced(level, move.destination());
+                markPlaced(level, move.destination(), move.provenance());
             }
         }
     }
@@ -192,18 +194,30 @@ public final class DeepYieldGameplay {
         return source.relative(direction).immutable();
     }
 
-    private static void markPlaced(ServerLevel level, BlockPos pos) {
+    private static void markPlaced(ServerLevel level, BlockPos pos, PlacedOrePositions.Provenance provenance) {
         LevelChunk chunk = level.getChunkAt(pos);
         PlacedOrePositions placed = chunk.getData(PLACED_ORES);
-        if (placed.add(pos)) {
+        if (placed.mark(pos, provenance)) {
             chunk.markUnsaved();
         }
     }
 
-    private static boolean isMarkedPlaced(ServerLevel level, BlockPos pos) {
+    private static PlacedOrePositions.Provenance placedProvenance(ServerLevel level, BlockPos pos) {
         LevelChunk chunk = level.getChunkAt(pos);
         PlacedOrePositions placed = chunk.getExistingDataOrNull(PLACED_ORES);
-        return placed != null && placed.contains(pos);
+        return placed == null ? null : placed.provenance(pos);
+    }
+
+    private static PlacedOrePositions.Provenance placementProvenance(net.minecraft.world.entity.Entity entity) {
+        return entity instanceof Player player && player.isCreative()
+                ? PlacedOrePositions.Provenance.CREATIVE_PLACED
+                : PlacedOrePositions.Provenance.SURVIVAL_PLACED;
+    }
+
+    private static boolean allowsDeepYield(PlacedOrePositions.Provenance provenance) {
+        return provenance == null
+                || provenance == PlacedOrePositions.Provenance.CREATIVE_PLACED
+                && DeepYieldConfig.ALLOW_CREATIVE_PLACED_ORES.get();
     }
 
     private static void removePlaced(ServerLevel level, BlockPos pos) {
@@ -332,6 +346,6 @@ public final class DeepYieldGameplay {
                              PistonEvent.PistonMoveType moveType) {
     }
 
-    private record PistonMove(BlockPos source, BlockPos destination) {
+    private record PistonMove(BlockPos source, BlockPos destination, PlacedOrePositions.Provenance provenance) {
     }
 }
