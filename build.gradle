@@ -69,6 +69,10 @@ tasks.named('test', Test).configure {
     useJUnitPlatform()
 }
 
+tasks.named('jar', Jar).configure {
+    from('LICENSE')
+}
+
 
 tasks.withType(ProcessResources).configureEach {
     var replaceProperties = [
