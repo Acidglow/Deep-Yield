@@ -61,6 +61,8 @@ configurations {
 
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
+    // Local development-only integration test mod. The directory is selected by this branch's Minecraft version.
+    localRuntime fileTree(dir: "libs ${minecraft_version}.x", include: ['*.jar'])
 
     testImplementation platform('org.junit:junit-bom:5.12.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'

@@ -119,3 +119,11 @@ The event hook is the only Deep Yield drop integration, preventing separate
 break and loot handlers from processing the same event twice. Blocks without
 reliable player attribution are left unchanged. No delayed bonus spawning or
 Ore Vein Miner-specific dependency is used.
+
+## Development vein-miner testing
+
+For local integration testing, place the matching Ore Vein Miner JAR in
+`libs 26.1.x/` on the `26.1.x` branch or `libs 26.2.x/` on the `26.2.x`
+branch. NeoGradle adds that folder to `localRuntime`, so `runClient` starts
+with the mod installed. These directories are ignored and are never packaged
+or published as Deep Yield dependencies.
