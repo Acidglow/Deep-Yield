@@ -167,6 +167,24 @@ class DeepYieldRulesTest {
         assertTrue(positions.isEmpty());
     }
 
+    @Test
+    void creativeAndSurvivalPlacementProvenanceAreStoredSeparately() {
+        PlacedOrePositions positions = new PlacedOrePositions();
+        var creativePosition = new net.minecraft.core.BlockPos(1, 2, 3);
+        var survivalPosition = new net.minecraft.core.BlockPos(4, 5, 6);
+
+        positions.mark(creativePosition, PlacedOrePositions.Provenance.CREATIVE_PLACED);
+        positions.mark(survivalPosition, PlacedOrePositions.Provenance.SURVIVAL_PLACED);
+
+        assertEquals(PlacedOrePositions.Provenance.CREATIVE_PLACED, positions.provenance(creativePosition));
+        assertEquals(PlacedOrePositions.Provenance.SURVIVAL_PLACED, positions.provenance(survivalPosition));
+
+        var encoded = PlacedOrePositions.CODEC.codec().encodeStart(JsonOps.INSTANCE, positions).getOrThrow();
+        PlacedOrePositions decoded = PlacedOrePositions.CODEC.codec().parse(JsonOps.INSTANCE, encoded).getOrThrow();
+        assertEquals(PlacedOrePositions.Provenance.CREATIVE_PLACED, decoded.provenance(creativePosition));
+        assertEquals(PlacedOrePositions.Provenance.SURVIVAL_PLACED, decoded.provenance(survivalPosition));
+    }
+
     private record DropKey(String item, String component) {
     }
 }

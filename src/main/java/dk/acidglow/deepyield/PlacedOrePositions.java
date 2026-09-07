@@ -6,37 +6,71 @@ import java.util.Set;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import net.minecraft.core.BlockPos;
 
 public final class PlacedOrePositions {
-    public static final MapCodec<PlacedOrePositions> CODEC = Codec.LONG.listOf()
-            .xmap(PlacedOrePositions::new, value -> value.positions.stream().toList())
-            .fieldOf("positions");
+    public static final MapCodec<PlacedOrePositions> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            Codec.LONG.listOf().optionalFieldOf("positions", java.util.List.of())
+                    .forGetter(value -> value.survivalPositions.stream().toList()),
+            Codec.LONG.listOf().optionalFieldOf("creative_positions", java.util.List.of())
+                    .forGetter(value -> value.creativePositions.stream().toList()))
+            .apply(instance, PlacedOrePositions::new));
 
-    private final Set<Long> positions;
-
-    public PlacedOrePositions() {
-        this.positions = new HashSet<>();
+    public enum Provenance {
+        SURVIVAL_PLACED,
+        CREATIVE_PLACED
     }
 
-    private PlacedOrePositions(Collection<Long> positions) {
-        this.positions = new HashSet<>(positions);
+    private final Set<Long> survivalPositions;
+    private final Set<Long> creativePositions;
+
+    public PlacedOrePositions() {
+        this(Set.of(), Set.of());
+    }
+
+    private PlacedOrePositions(Collection<Long> survivalPositions, Collection<Long> creativePositions) {
+        this.survivalPositions = new HashSet<>(survivalPositions);
+        this.creativePositions = new HashSet<>(creativePositions);
     }
 
     public boolean contains(BlockPos pos) {
-        return positions.contains(pos.asLong());
+        return provenance(pos) != null;
     }
 
     public boolean add(BlockPos pos) {
-        return positions.add(pos.asLong());
+        return mark(pos, Provenance.SURVIVAL_PLACED);
+    }
+
+    public boolean mark(BlockPos pos, Provenance provenance) {
+        long packedPosition = pos.asLong();
+        if (provenance == provenance(pos)) {
+            return false;
+        }
+        survivalPositions.remove(packedPosition);
+        creativePositions.remove(packedPosition);
+        return positionsFor(provenance).add(packedPosition);
+    }
+
+    public Provenance provenance(BlockPos pos) {
+        long packedPosition = pos.asLong();
+        if (survivalPositions.contains(packedPosition)) {
+            return Provenance.SURVIVAL_PLACED;
+        }
+        return creativePositions.contains(packedPosition) ? Provenance.CREATIVE_PLACED : null;
     }
 
     public boolean remove(BlockPos pos) {
-        return positions.remove(pos.asLong());
+        long packedPosition = pos.asLong();
+        return survivalPositions.remove(packedPosition) | creativePositions.remove(packedPosition);
     }
 
     public boolean isEmpty() {
-        return positions.isEmpty();
+        return survivalPositions.isEmpty() && creativePositions.isEmpty();
+    }
+
+    private Set<Long> positionsFor(Provenance provenance) {
+        return provenance == Provenance.CREATIVE_PLACED ? creativePositions : survivalPositions;
     }
 }

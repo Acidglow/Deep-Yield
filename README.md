@@ -20,8 +20,10 @@ multiple copies of their normal loot.
 - No Ore Vein Miner dependency is required; compatibility uses the normal
   NeoForge block-drops pipeline.
 - Player- and mechanism-placed eligible ores are tracked as non-natural
-  blocks, so they retain normal Fortune/Silk Touch loot but never reactivate
-  Deep Yield.
+  blocks, so Survival placements retain normal Fortune/Silk Touch loot but
+  never reactivate Deep Yield.
+- Ores placed by a Creative-mode player can be allowed for testing and server
+  administration with `allowCreativePlacedOres`.
 
 ## Placement provenance
 
@@ -32,6 +34,12 @@ changes. `BlockEvent.EntityPlaceEvent` covers normal player, fake-player, and
 other entity placement; `FluidPlaceBlockEvent` covers reliable fluid
 placement. `BlockDropsEvent` checks the marker before any Deep Yield roll, and
 `LevelTickEvent.Post` removes it after the block has actually changed.
+
+The marker records whether a block was placed in Survival or Creative mode.
+Survival placements never activate Deep Yield. A Creative placement remains
+eligible after its placer changes game mode when `allowCreativePlacedOres = true`
+(the default); set that option to `false` for strictly natural-worldgen-only
+behavior.
 
 Piston provenance is transferred using NeoForge `PistonEvent.Pre`/`Post` and
 the supported `PistonStructureResolver`; destroyed tracked blocks are removed
@@ -61,6 +69,7 @@ bonusWeightPlus4 = 7
 bonusWeightPlus5 = 3
 affectFortune = true
 affectSilkTouch = true
+allowCreativePlacedOres = true
 oreBlacklist = []
 ```
 
